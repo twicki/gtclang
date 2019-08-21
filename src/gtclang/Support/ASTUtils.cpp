@@ -14,23 +14,15 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-// RUN: %gtclang% %file% -fno-codegen
+#include "clang/AST/ASTFwd.h"
+#include "clang/AST/ExprCXX.h"
 
-#include "gridtools/clang_dsl.hpp"
+#include "gtclang/Support/ASTUtils.h"
 
-using namespace gridtools::clang;
+namespace gtclang {
 
-stencil Test {
-  storage in;
-  var tmp;
-
-  Do {
-    vertical_region(k_start, k_end)
-        in(i, j, k) = tmp(i, j, k); // EXPECTED_ERROR: access to uninitialized temporary storage 'tmp'
-
-    vertical_region(k_start, k_end)
-        tmp(i, j, k) = in(i, j, k);
-  }
-};
-
-int main() {}
+std::string getClassNameFromConstructExpr(clang::CXXConstructExpr* expr) {
+  clang::CXXRecordDecl* recDecl = expr->getConstructor()->getParent();
+  return recDecl->getNameAsString();
+}
+} // namespace gtclang
