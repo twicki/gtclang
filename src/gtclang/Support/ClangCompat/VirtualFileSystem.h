@@ -14,33 +14,35 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-// RUN: %gtclang% %file% -fwrite-iir -fno-codegen -o %filename%_gen.cpp
-// EXPECTED_FILE: OUTPUT:%filename%.2.iir REFERENCE:%filename%_ref.iir IGNORE:filename DELETE:%filename%.0.iir,%filename%.1.iir
+#ifndef GTCLANG_SUPPORT_CLANGCOMPAT_VIRTUALFILESYSTEM_H
+#define GTCLANG_SUPPORT_CLANGCOMPAT_VIRTUALFILESYSTEM_H
 
-#include "gridtools/clang_dsl.hpp"
+#include "clang/Basic/Version.h"
 
-using namespace gridtools::clang;
+#if CLANG_VERSION_MAJOR < 8
+#include "clang/Basic/VirtualFileSystem.h"
+#else
+#include "llvm/Support/VirtualFileSystem.h"
+#endif
 
-stencil Test {
-  storage field_a, field_b;
+namespace gtclang {
+namespace clang_compat {
+#if CLANG_VERSION_MAJOR < 8
 
-  Do {
-    vertical_region(k_start, k_end) { field_a = field_b; }
-  }
-};
+namespace llvm {
+namespace vfs {
+using InMemoryFileSystem = ::clang::vfs::InMemoryFileSystem;
+}
+} // namespace llvm
+#else
+namespace llvm {
+namespace vfs {
+using InMemoryFileSystem = ::llvm::vfs::InMemoryFileSystem;
+}
+} // namespace llvm
+#endif
 
-stencil Nesting1 {
-  storage filed_c, field_d;
+} // namespace clang_compat
+} // namespace gtclang
 
-  Do { Test(filed_c, field_d); }
-};
-
-stencil Nesting2 {
-  storage field_e, field_f;
-
-  Do {
-    Nesting1(field_e, field_f);
-    Test(field_f, field_e);
-  }
-};
-
+#endif // GTCLANG_SUPPORT_CLANGCOMPAT_VIRTUALFILESYSTEM_H

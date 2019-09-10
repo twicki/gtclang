@@ -19,6 +19,7 @@
 #include "dawn/Support/Unreachable.h"
 #include "gtclang/Frontend/GTClangContext.h"
 #include "gtclang/Support/ASTUtils.h"
+#include "gtclang/Support/ClangCompat/SourceLocation.h"
 #include "gtclang/Support/FileUtil.h"
 #include "gtclang/Support/Logger.h"
 #include "clang/AST/AST.h"
@@ -143,21 +144,34 @@ void GlobalVariableParser::parseGlobals(clang::CXXRecordDecl* recordDecl) {
       Expr* init = skipAllImplicitNodes(arg->getInClassInitializer());
 
       auto reportError = [&]() {
-        context_->getDiagnostics().report(init->getLocStart(),
+        context_->getDiagnostics().report(clang_compat::getBeginLoc(*init),
                                           Diagnostics::err_globals_invalid_default_value)
             << init->getType().getAsString() << name;
       };
 
-      if(IntegerLiteral* il = dyn_cast<IntegerLiteral>(init)) {
+      // demotion to integer (`double ->12<-' would dyncast to int)
+      if(dyn_cast<IntegerLiteral>(init) != nullptr && typeKind == dawn::sir::Value::Integer) {
+        IntegerLiteral* il = dyn_cast<IntegerLiteral>(init);
         std::string valueStr = il->getValue().toString(10, true);
         value->setValue((int)std::atoi(valueStr.c_str()));
         DAWN_LOG(INFO) << "Setting default value of '" << name << "' to '" << valueStr << "'";
 
-      } else if(FloatingLiteral* fl = dyn_cast<FloatingLiteral>(init)) {
-        llvm::SmallVector<char, 10> valueVec;
-        fl->getValue().toString(valueVec);
-        std::string valueStr(valueVec.data(), valueVec.size());
-        value->setValue((double)std::atof(valueStr.c_str()));
+      // this slightly unelegant procedure is needed since FloatingLiteral does not cast from
+      // expressions without trailing do (e.g. `12.' would cast, `12' wouldn't.)
+      } else if((dyn_cast<FloatingLiteral>(init) != nullptr || dyn_cast<IntegerLiteral>(init) != nullptr)
+          && typeKind == dawn::sir::Value::Double) {
+        IntegerLiteral* il = dyn_cast<IntegerLiteral>(init);
+        FloatingLiteral* fl = dyn_cast<FloatingLiteral>(init);
+        std::string valueStr;
+        if (fl != nullptr) {
+          llvm::SmallVector<char, 10> valueVec;
+          fl->getValue().toString(valueVec);
+          valueStr = std::string(valueVec.data(), valueVec.size());
+          value->setValue((double)std::atof(valueStr.c_str()));
+        } else {
+          valueStr = il->getValue().toString(10, true);
+          value->setValue((double)std::atof(valueStr.c_str()));
+        }
         DAWN_LOG(INFO) << "Setting default value of '" << name << "' to '" << valueStr << "'";
 
       } else if(CXXBoolLiteralExpr* bl = dyn_cast<CXXBoolLiteralExpr>(init)) {

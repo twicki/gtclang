@@ -17,7 +17,7 @@
 #include "gtclang/Frontend/GTClangASTConsumer.h"
 #include "dawn/Compiler/DawnCompiler.h"
 #include "dawn/SIR/SIR.h"
-#include "dawn/SIR/SIRSerializer.h"
+#include "dawn/Serialization/SIRSerializer.h"
 #include "dawn/Support/Config.h"
 #include "dawn/Support/Format.h"
 #include "dawn/Support/StringUtil.h"
@@ -28,6 +28,8 @@
 #include "gtclang/Frontend/GTClangContext.h"
 #include "gtclang/Frontend/GlobalVariableParser.h"
 #include "gtclang/Frontend/StencilParser.h"
+#include "gtclang/Support/ClangCompat/FileSystem.h"
+#include "gtclang/Support/ClangCompat/VirtualFileSystem.h"
 #include "gtclang/Support/Config.h"
 #include "gtclang/Support/FileUtil.h"
 #include "gtclang/Support/Logger.h"
@@ -185,8 +187,8 @@ void GTClangASTConsumer::HandleTranslationUnit(clang::ASTContext& ASTContext) {
   }
 
   // Create new in-memory FS
-  llvm::IntrusiveRefCntPtr<clang::vfs::InMemoryFileSystem> memFS(
-      new clang::vfs::InMemoryFileSystem);
+  llvm::IntrusiveRefCntPtr<clang_compat::llvm::vfs::InMemoryFileSystem> memFS(
+      new clang_compat::llvm::vfs::InMemoryFileSystem);
   clang::FileManager files(clang::FileSystemOptions(), memFS);
   clang::SourceManager sources(context_->getASTContext().getDiagnostics(), files);
 
@@ -203,6 +205,8 @@ void GTClangASTConsumer::HandleTranslationUnit(clang::ASTContext& ASTContext) {
       code += p.second;
     }
   } else {
+    int num_stencils_generated = 0;
+
     // Get a copy of the main-file's code
     std::unique_ptr<llvm::MemoryBuffer> generatedCode =
         llvm::MemoryBuffer::getMemBufferCopy(SM.getBufferData(SM.getMainFileID()));
@@ -224,9 +228,19 @@ void GTClangASTConsumer::HandleTranslationUnit(clang::ASTContext& ASTContext) {
              clang::SourceRange(stencilDecl->getSourceRange().getBegin(), semiAfterDef),
              stencilPair.second->Attributes.has(dawn::sir::Attr::AK_NoCodeGen)
                  ? ""
-                 : DawnTranslationUnit->getStencils().at(stencilPair.second->Name)))
+                 : DawnTranslationUnit->getStencils().at(
+                       DawnTranslationUnit->getStencils().count("<restored>") > 0
+                           ? "<restored>"
+                           : stencilPair.second->Name))) {
         context_->getDiagnostics().report(Diagnostics::err_fs_error) << dawn::format(
             "unable to replace stencil code at: %s", stencilDecl->getLocation().printToString(SM));
+      } else {
+        num_stencils_generated++;
+      }
+      if(context_->getOptions().DeserializeIIR != "" && num_stencils_generated > 1) {        
+        DAWN_LOG(ERROR)<< "more than one stencil present in DSL but only one stencil deserialized from IIR";
+        return;
+      }
     }
 
     // Replace globals struct
@@ -276,7 +290,7 @@ void GTClangASTConsumer::HandleTranslationUnit(clang::ASTContext& ASTContext) {
 
   std::shared_ptr<llvm::raw_ostream> ost;
   std::error_code ec;
-  llvm::sys::fs::OpenFlags flags = llvm::sys::fs::OpenFlags::F_RW;
+  llvm::sys::fs::OpenFlags flags = clang_compat::llvm::sys::fs::OpenFlags::OF_Text;
   if(context_->getOptions().OutputFile.empty()) {
     ost = std::make_shared<llvm::raw_os_ostream>(std::cout);
   } else {

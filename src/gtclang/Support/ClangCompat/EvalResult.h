@@ -14,33 +14,26 @@
 //
 //===------------------------------------------------------------------------------------------===//
 
-// RUN: %gtclang% %file% -fwrite-iir -fno-codegen -o %filename%_gen.cpp
-// EXPECTED_FILE: OUTPUT:%filename%.2.iir REFERENCE:%filename%_ref.iir IGNORE:filename DELETE:%filename%.0.iir,%filename%.1.iir
+#ifndef GTCLANG_SUPPORT_CLANGCOMPAT_EVALRESULT_H
+#define GTCLANG_SUPPORT_CLANGCOMPAT_EVALRESULT_H
 
-#include "gridtools/clang_dsl.hpp"
+#include "clang/AST/Expr.h"
+#include "clang/Basic/Version.h"
 
-using namespace gridtools::clang;
+namespace gtclang {
+namespace clang_compat {
+namespace Expr {
+#if CLANG_VERSION_MAJOR < 8
+using EvalResultInt = ::llvm::APSInt;
+inline int64_t getInt(EvalResultInt const& res) { return res.getExtValue(); }
 
-stencil Test {
-  storage field_a, field_b;
+#else
+using EvalResultInt = ::clang::Expr::EvalResult;
+inline int64_t getInt(EvalResultInt const& res) { return res.Val.getInt().getExtValue(); }
 
-  Do {
-    vertical_region(k_start, k_end) { field_a = field_b; }
-  }
-};
+#endif
+} // namespace Expr
+} // namespace clang_compat
+} // namespace gtclang
 
-stencil Nesting1 {
-  storage filed_c, field_d;
-
-  Do { Test(filed_c, field_d); }
-};
-
-stencil Nesting2 {
-  storage field_e, field_f;
-
-  Do {
-    Nesting1(field_e, field_f);
-    Test(field_f, field_e);
-  }
-};
-
+#endif // GTCLANG_SUPPORT_CLANGCOMPAT_EVALRESULT_H
